@@ -111,11 +111,11 @@ namespace UncomplicatedCustomRoles.Manager.NET
                 return field;
             }
 
-            set;
+            internal set;
         }
 
         /// <summary>
-        /// Create a new istance of the HttpManager
+        /// Create a new instance of the HttpManager
         /// </summary>
         /// <param name="prefix"></param>
         public HttpManager(string prefix)
@@ -188,6 +188,8 @@ namespace UncomplicatedCustomRoles.Manager.NET
                 return;
             
             CreditTag tag = GetCreditTag(player);
+            if (tag == null)
+                return;
 
             if (player.UserGroup != null && !tag.Override)
                 return;
