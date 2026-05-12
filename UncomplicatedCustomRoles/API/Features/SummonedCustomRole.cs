@@ -28,6 +28,7 @@ using UncomplicatedCustomRoles.Extensions;
 using UncomplicatedCustomRoles.Integrations;
 using UncomplicatedCustomRoles.Manager;
 using UnityEngine;
+using UncomplicatedCustomRoles.Manager.NET;
 
 namespace UncomplicatedCustomRoles.API.Features
 {
@@ -660,15 +661,15 @@ namespace UncomplicatedCustomRoles.API.Features
         
         public static void TryParseRemoteAdmin(ReferenceHub player, StringBuilder builder) //REF
         {
-            if (Plugin.HttpManager.Credits.TryGetValue(player.authManager.UserId, out Triplet<string, string, bool> tag) && 
-                !string.IsNullOrEmpty(tag.First) && !string.IsNullOrEmpty(tag.Second))
+            if (Plugin.HttpManager.CreditTags.TryGetValue(player.authManager.UserId, out HttpManager.CreditTag tag) && 
+                !string.IsNullOrEmpty(tag.Role) && !string.IsNullOrEmpty(tag.Color))
             {
                 if (Plugin.HttpManager.IsJobRole.Contains(player.authManager.UserId))
-                    builder.AppendLine(
-                        $"\nUCS Status: <color=#0b55b0><b>[UCS EMPLOYEE]</b></color> <color={SpawnManager.colorMap[tag.Second]}>{tag.First}</color>");
+                {
+                    builder.AppendLine($"\nUCS Status: <color=#0b55b0><b>[UCS EMPLOYEE]</b></color> <color={SpawnManager.colorMap[tag.Color]}>{tag.Role}</color>");
+                }
                 else
-                    builder.AppendLine(
-                        $"\nUCS Status: <color=#c9ad2c><b>[UCS CONTRIBUTOR]</b></color> <color={SpawnManager.colorMap[tag.Second]}>{tag.First}</color>");
+                    builder.AppendLine($"\nUCS Status: <color=#c9ad2c><b>[UCS CONTRIBUTOR]</b></color> <color={SpawnManager.colorMap[tag.Color]}>{tag.Role}</color>");
             }
 
             if (TryGet(player, out SummonedCustomRole role))

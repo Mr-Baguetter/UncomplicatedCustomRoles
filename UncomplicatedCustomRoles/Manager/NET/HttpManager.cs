@@ -22,6 +22,7 @@ using LabApi.Features.Wrappers;
 using UncomplicatedCustomRoles.API.Struct;
 using UncomplicatedCustomRoles.Extensions;
 using UncomplicatedCustomRoles.API.Features.Messages;
+using System.Text.Json.Serialization;
 
 namespace UncomplicatedCustomRoles.Manager.NET
 {
@@ -29,6 +30,45 @@ namespace UncomplicatedCustomRoles.Manager.NET
 
     internal class HttpManager
     {
+        // This is assuming that credit tags are still following the same format.
+        public class CreditTag
+        {
+            public CreditTag(string role, string color, bool over)
+            {
+                Role = role;
+                Color = color;
+                Override = over;
+            }
+
+            [JsonPropertyName("role")]
+            public string Role { get; set; } = string.Empty;
+
+            [JsonPropertyName("color")]
+            public string Color { get; set; } = string.Empty;
+
+            [JsonPropertyName("override")]
+            public bool Override { get; set; }
+
+            [JsonPropertyName("job")]
+            public bool Job { get; set; }
+        }
+
+        /// <summary>
+        /// Gets the CreditTag storage for the plugin, downloaded from our central server
+        /// </summary>
+        public Dictionary<string, CreditTag> CreditTags
+        {
+            get
+            {
+                if (field == null || field.IsEmpty())
+                    LoadCreditTags();
+
+                return field;
+            }
+
+            internal set;
+        } = [];
+
         /// <summary>
         /// Gets the <see cref="CoroutineHandle"/> of the presence coroutine.
         /// </summary>
@@ -45,7 +85,7 @@ namespace UncomplicatedCustomRoles.Manager.NET
         public string Prefix { get; }
 
         /// <summary>
-        /// Gets the <see cref="HttpClient"/> public istance
+        /// Gets the <see cref="HttpClient"/> public instance
         /// </summary>
         public HttpClient HttpClient { get; }
 
@@ -55,29 +95,24 @@ namespace UncomplicatedCustomRoles.Manager.NET
         public string Endpoint { get; } = "https://api.ucserver.it/v3/plugin";
 
         /// <summary>
-        /// Gets the CreditTag storage for the plugin, downloaded from our central server
-        /// </summary>
-        public Dictionary<string, Triplet<string, string, bool>> Credits { get; internal set; } = new();
-
-        /// <summary>
         /// Gets the role of the given player (as steamid@64) inside UCR
         /// </summary>
-        public List<string> IsJobRole { get; } = new();
+        public List<string> IsJobRole => CreditTags.Where(x => x.Value.Job).Select(x => x.Key).ToList();
 
         /// <summary>
         /// Gets the latest <see cref="Version"/> of the plugin, loaded by the UCS cloud
         /// </summary>
-        public Version LatestVersion { get
+        public Version LatestVersion {
+            get
             {
-                if (_latestVersion is null)
+                if (field is null)
                     LoadLatestVersion();
-                return _latestVersion;
+
+                return field;
             }
+
+            set;
         }
-
-        private Version _latestVersion { get; set; } = null;
-
-        private bool _alreadyManaged { get; set; } = false;
 
         /// <summary>
         /// Create a new istance of the HttpManager
@@ -113,38 +148,23 @@ namespace UncomplicatedCustomRoles.Manager.NET
             string Version = HttpQuery.Get($"{Endpoint}/{Prefix}/versions/latest@text/plain");
 
             if (!string.IsNullOrEmpty(Version) && Version.Contains("."))
-                _latestVersion = new(Version);
+            {
+                LatestVersion = new(Version);
+            }
             else
-                _latestVersion = new();
+                LatestVersion = new();
         }
 
         public void LoadCreditTags()
         {
-            Credits = new();
             try
-            {   
-                Dictionary<string, Dictionary<string, JsonElement>> Data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, JsonElement>>>(HttpQuery.Get($"https://api.ucserver.it/credits.json"));
+            {
+                CreditTags = JsonSerializer.Deserialize<Dictionary<string, CreditTag>>(HttpQuery.Get($"https://api.ucserver.it/credits.json"));
 
-                if (Data is null)
+                if (CreditTags is null || CreditTags.IsEmpty())
                 {
                     LogManager.Warn("Failed to connect to the UCS Central Server to get the credit tags informations!");
                     return;
-                }
-
-                foreach (KeyValuePair<string, Dictionary<string, JsonElement>> kvp in Data.Where(kvp => kvp.Value is not null && kvp.Value.ContainsKey("role") && kvp.Value.ContainsKey("color") && kvp.Value.ContainsKey("override") && kvp.Value.ContainsKey("job") ))
-                {
-                    string role = kvp.Value["role"].GetString();
-                    string color = kvp.Value["color"].GetString();
-                    bool overrideStr = kvp.Value["override"].ValueKind switch
-                    {
-                        JsonValueKind.String => bool.Parse(kvp.Value["override"].GetString() ?? string.Empty),
-                        JsonValueKind.True => true,
-                        _ => false
-                    };
-                    bool isJob = kvp.Value["job"].ValueKind == JsonValueKind.True;
-                    Credits.Add(kvp.Key, new(role, color, overrideStr));
-                    if (isJob)
-                        IsJobRole.Add(kvp.Key);
                 }
             }
             catch (Exception e)
@@ -154,38 +174,30 @@ namespace UncomplicatedCustomRoles.Manager.NET
             }
         }
 
-        public Triplet<string, string, bool> GetCreditTag(Player player)
+        public CreditTag GetCreditTag(Player player)
         {
-            if (Credits.TryGetValue(player.UserId, out var tag))
+            if (CreditTags.TryGetValue(player.UserId, out var tag))
                 return tag;
 
-            return new(null, null, false);
+            return null;
         }
 
         public void ApplyCreditTag(Player player)
         {
             if (!Plugin.Instance.Config.EnableCreditTags)
                 return;
+            
+            CreditTag tag = GetCreditTag(player);
 
-            if (_alreadyManaged)
+            if (player.UserGroup != null && !tag.Override)
                 return;
 
-            Triplet<string, string, bool> Tag = GetCreditTag(player);
-            
-            if (!string.IsNullOrEmpty(player.ReferenceHub.serverRoles.Network_myText))
-            {
-                if (Credits.Any(k => k.Value.First == player.ReferenceHub.serverRoles.Network_myText && k.Value.Second == player.ReferenceHub.serverRoles.Network_myColor))
-                    _alreadyManaged = true;
+            if (tag.Role == player.GroupName && tag.Color == player.GroupColor)
+                return;
 
-                if (!Tag.Third)
-                    return; // Do not override
-            }
-
-            if (Tag.First is not null && Tag.Second is not null)
-            {
-                player.ReferenceHub.serverRoles.SetText(Tag.First);
-                player.ReferenceHub.serverRoles.SetColor(Tag.Second);
-            }
+            player.GroupName = tag.Role;
+            player.GroupColor = tag.Color;
+            LogManager.Debug($"Applied credit tag for player {player.Nickname} ({player.UserId}) - Role: {tag.Role}, Color: {tag.Color}");
         }
 
         public bool IsLatestVersion(out Version latest)
